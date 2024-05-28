@@ -1,64 +1,5 @@
-
-import { marked } from 'marked';
-
-const
-  index = Symbol('index'),
-  rindex = Symbol('rindex'),
-  count = Symbol('count');
-
-const
-  xmlEscapeMap = { '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' } as const,
-  xmlesc = (s: string) => s.replace(/[<>&'"]/g, m => xmlEscapeMap[m as keyof typeof xmlEscapeMap]);
-
-const indent = '  ';
-
-const expressionMap = {
-  text: {
-    type: 'string',
-    process: (s: string) => xmlesc(s),
-  },
-  html: {
-    type: 'string',
-    process: (s: string) => s,
-  },
-  markdown: {
-    type: 'string',
-    process: (s: string) => marked(s),
-  },
-  number: {
-    type: 'number',
-    process: (n: number) => n.toLocaleString(),
-  },
-  date: {
-    type: 'Date',
-    process: (d: Date) => d.toLocaleDateString(),
-  },
-  time: {
-    type: 'Date',
-    process: (d: Date) => d.toLocaleTimeString(),
-  },
-  datetime: {
-    type: 'Date',
-    process: (d: Date) => d.toLocaleString(),
-  },
-  // used for deduplication, consistency-checking, types
-  array: { type: '[]' },
-  object: { type: '{}' },
-  if: { type: null },
-  unless: { type: null },
-};
-
-type DataType = keyof typeof expressionMap;
-
-type Expression = {
-  [key in DataType]?: string | symbol;
-} | {
-  content: Template;
-  default: any;
-  transform: (x: any) => any;
-};
-
-type Template = (t: (literals: TemplateStringsArray, ...expressions: Expression[]) => any) => any;
+import type { Template } from '.';
+import { extractTypes, render, index } from '.';
 
 const recipe: Template = t => t`
   <h2>
@@ -81,43 +22,6 @@ const layout: Template = t => t`
       ${{ object: 'user', content: t`<p>User name: ${{ text: 'name' }}</p>` }}
     </body>
   </html>`;
-
-const embrace = (s: string) => '{' + s.replace(/\n/g, '\n' + indent) + '\n}';
-
-const extractTypes = (template: Template) => {
-  const fn = (literals: TemplateStringsArray, ...expressions: any[]) => {
-    let types = '';
-    const prevTypes = {};  // for deduplication and consistency-checking
-    for (const exp of expressions) {
-      const dataType = Object.keys(exp)[0];
-      const dataKey = exp[dataType];
-
-      if (typeof dataKey === 'symbol') continue;  // e.g. indexes
-
-      if (dataType === 'if' || dataType === 'unless') {
-        types += exp.content.replace(/^(\S+):/gm, '$1?:');
-
-      } else {
-        const { type } = expressionMap[dataType];
-        if (prevTypes[dataKey] === type) continue;  // already added this name to types
-        else if (prevTypes[dataKey]) throw (`Contradictory types for '${dataKey}': ${type} and ${prevTypes[dataKey]}`);
-        prevTypes[dataKey] = type;
-
-        types += '\n' + dataKey + (exp.default ? '?' : '') + ': ';
-        if (dataType === 'array' || dataType === 'object') {
-          types += embrace(exp.content) + (dataType === 'array' ? '[]' : '') + ';';
-
-        } else {
-          types += expressionMap[dataType].type + ';';
-        }
-      }
-    }
-    return types;
-  }
-  return embrace(template(fn));
-}
-
-console.log(extractTypes(layout));
 
 interface Data {
   heading: string;
@@ -155,62 +59,5 @@ const data: Data = {
   },
 };
 
-const defaultRenderData = {
-  [index]: 0,
-  [rindex]: 0,
-  [count]: 0,
-};
-
-const render = (template: Template, data: any) => {
-  const
-    fn = (literals: TemplateStringsArray, ...expressions: any[]) => ({ literals: Array.from(literals), expressions }),
-    tree = template(fn);
-
-  return treeRender(tree, data);
-};
-
-function treeRender({ literals, expressions }: { literals: TemplateStringsArray; expressions: any[] }, data: any, renderData = defaultRenderData) {
-  let result = literals[0];
-  for (let i = 1, iLen = literals.length; i < iLen; i++) {
-    const
-      expression = expressions[i - 1],
-      dataType = Object.keys(expression)[0],
-      dataKey = expression[dataType],
-      dataValue = data[dataKey] ?? expression.default;
-
-    if (dataType === 'array') {
-      for (let j = 0, jLen = dataValue.length; j < jLen; j++) {
-        const localRenderData = { [index]: j, [rindex]: jLen - j - 1, [count]: jLen };
-        result += treeRender(expression.content, dataValue[j], localRenderData);
-      }
-
-    } else if (dataType === 'object') {
-      result += treeRender(expression.content, dataValue, renderData);
-
-    } else {
-      let value =
-        typeof dataKey === 'string' ? dataValue :
-          typeof dataKey === 'symbol' ? renderData[dataKey] :
-            throwFn(`Data key must be string or symbol, but was: ${dataKey}`);
-
-      if (expression.transform) value = expression.transform(value);
-
-      if (dataType === 'if' || dataType === 'unless') {
-        if (dataType === 'if' ? value : !value) result += treeRender(expression.content, data, renderData);
-
-      } else {
-        const expressionDetails = expressionMap[dataType] ?? throwFn(`Unknown expression type: ${dataType}`);
-        result += expressionDetails.process(value ?? throwFn(`No data supplied for: ${dataKey}`));
-      }
-    }
-    result += literals[i];
-  }
-  return result;
-}
-
-function throwFn(message: string) {
-  throw new Error(message);
-}
-
-
+console.log(extractTypes(layout));
 console.log(render(layout, data));
