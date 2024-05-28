@@ -84,7 +84,7 @@ const layout: Template = t => t`
 
 const embrace = (s: string) => '{' + s.replace(/\n/g, '\n' + indent) + '\n}';
 
-const extractTypes = (template) => {
+const extractTypes = (template: Template) => {
   const fn = (literals: TemplateStringsArray, ...expressions: any[]) => {
     let types = '';
     const prevTypes = {};  // for deduplication and consistency-checking
@@ -161,23 +161,25 @@ const defaultRenderData = {
   [count]: 0,
 };
 
-const render = (template, data) => {
-  const fn = (literals: TemplateStringsArray, ...expressions: any[]) => ({ literals: Array.from(literals), expressions });
-  const tree = template(fn);
+const render = (template: Template, data: any) => {
+  const
+    fn = (literals: TemplateStringsArray, ...expressions: any[]) => ({ literals: Array.from(literals), expressions }),
+    tree = template(fn);
+
   return treeRender(tree, data);
 };
 
 function treeRender({ literals, expressions }: { literals: TemplateStringsArray; expressions: any[] }, data: any, renderData = defaultRenderData) {
   let result = literals[0];
   for (let i = 1, iLen = literals.length; i < iLen; i++) {
-    const 
+    const
       expression = expressions[i - 1],
       dataType = Object.keys(expression)[0],
       dataKey = expression[dataType],
       dataValue = data[dataKey] ?? expression.default;
 
     if (dataType === 'array') {
-      for (let j = 0, jLen = dataValue.length; j < jLen; j ++) {
+      for (let j = 0, jLen = dataValue.length; j < jLen; j++) {
         const localRenderData = { [index]: j, [rindex]: jLen - j - 1, [count]: jLen };
         result += treeRender(expression.content, dataValue[j], localRenderData);
       }
@@ -186,19 +188,28 @@ function treeRender({ literals, expressions }: { literals: TemplateStringsArray;
       result += treeRender(expression.content, dataValue, renderData);
 
     } else {
-      let value = typeof dataKey === 'string' ? dataValue : renderData[dataKey];
+      let value =
+        typeof dataKey === 'string' ? dataValue :
+          typeof dataKey === 'symbol' ? renderData[dataKey] :
+            throwFn(`Data key must be string or symbol, but was: ${dataKey}`);
+
       if (expression.transform) value = expression.transform(value);
 
       if (dataType === 'if' || dataType === 'unless') {
         if (dataType === 'if' ? value : !value) result += treeRender(expression.content, data, renderData);
 
       } else {
-        result += expressionMap[dataType].process(value);
+        const expressionDetails = expressionMap[dataType] ?? throwFn(`Unknown expression type: ${dataType}`);
+        result += expressionDetails.process(value ?? throwFn(`No data supplied for: ${dataKey}`));
       }
     }
     result += literals[i];
   }
   return result;
+}
+
+function throwFn(message: string) {
+  throw new Error(message);
 }
 
 
