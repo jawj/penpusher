@@ -1,13 +1,13 @@
 import type { Template } from '.';
 import { extractTypes, render, index } from '.';
 
-const recipe: Template = t => t`
+const recipeCard: Template = t => t`
   <h2>
-    ${{ number: index, transform: i => i + 1 }}.
+    ${{ number: index, transform: i => i + 1 }}. 
     <a href="${{ text: 'url' }}">${{ text: 'name' }}</a>
-    ${{ if: 'steps', content: t`<div class="steps">${{ markdown: 'steps' }}</div>` }}
-    ${{ date: 'createdat' }}
-  </h2>`;
+  </h2>
+  ${{ if: 'steps', content: t`<div class="steps">${{ markdown: 'steps' }}</div>` }}
+  ${{ date: 'createdat' }}`;
 
 const layout: Template = t => t`
   <html>
@@ -18,10 +18,55 @@ const layout: Template = t => t`
     <body>
       <h1>${{ text: 'heading' }}</h1>
       <div class="description">${{ markdown: 'description', default: '_Some_ recipe' }}</div>
-      ${{ array: 'recipes', content: recipe(t) }}
+      ${{ array: 'recipes', content: recipeCard(t) }}
       ${{ object: 'user', content: t`<p>User name: ${{ text: 'name' }}</p>` }}
     </body>
   </html>`;
+
+const checkLength = (s: string, min: number, max: number) =>
+  (s.length < min || s.length > max) ? (
+    min > 0 ? `Must be between ${min} and ${max} characters` :
+      `Cannot be more than ${max} characters`
+  ) : undefined;
+
+
+const recipeForm: Template = t => t`
+  <form method="post">
+  ${{
+    inputText: 'name',
+    label: 'Name',
+    placeholder: 'Ragu alla nonna',
+    size: [80, 1],
+    optional: false, // default
+    trim: true,  // default
+    check: (s: string) => checkLength(s, 1, 250),
+  }}
+  ${{
+    inputText: 'subtitle',
+    label: 'Subtitle',
+    placeholder: 'A tasty Italian classic',
+    size: [80, 2],
+    optional: true,
+    check: (s: string) => checkLength(s, 0, 500),
+  }}
+  ${{
+    inputText: 'ingredients',
+    label: 'Ingredients',
+    placeholder: '1 white onion, finely chopped\n...',
+    size: [80, 10],
+    optional: true,
+    check: (s: string) => checkLength(s, 0, 5000),
+  }}
+  ${{
+    inputText: 'method',
+    label: 'Method',
+    placeholder: 'Fry the onion on a low heat until soft.\n...',
+    size: [80, 20],
+    optional: true,
+    check: (s: string) => checkLength(s, 0, 10000),
+  }}
+  </form>
+`;
 
 interface Data {
   heading: string;
@@ -61,3 +106,6 @@ const data: Data = {
 
 console.log(extractTypes(layout));
 console.log(render(layout, data));
+
+console.log(extractTypes(recipeForm));
+console.log(render(recipeForm, { name: 'x', subtitle: 'y', ingredients: 'z', method: 'a' }));

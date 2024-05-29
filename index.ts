@@ -44,6 +44,13 @@ const expressionLogics = {
     type: 'Date',
     process: (d: Date) => d.toLocaleString(),
   },
+  inputText: {
+    type: 'string',
+    process: (value: string, exp: Record<string, any>) =>
+      exp.size[1] === 1 ?
+        `<input type="text" name="${exp.inputText}" placeholder="${xmlesc(exp.placeholder)}" cols="${exp.size[0]}" rows="${exp.size[1]}" value="${xmlesc(value)}">` :
+        `<textarea name="${exp.inputText}" cols="${exp.size[0]}" rows="${exp.size[1]}">${xmlesc(value)}</textarea>`,
+  },
   // used for deduplication, consistency-checking, types
   array: { type: '[]' },
   object: { type: '{}' },
@@ -59,6 +66,12 @@ type Expression = {
   content: Template;
   default: any;
   transform: (x: any) => any;
+  label: string;
+  placeholder: string;
+  size: [number, number];
+  trim: boolean;
+  optional: boolean;
+  check: (x: any) => string | undefined;
 };
 
 export const extractTypes = (template: Template) => {
@@ -97,7 +110,7 @@ export const extractTypes = (template: Template) => {
 const defaultRenderData = {
   [index]: 0,
   [rindex]: 0,
-  [count]: 0,
+  [count]: 1,
 };
 
 export const render = (template: Template, data: any) => {
@@ -140,7 +153,7 @@ function treeRender({ literals, expressions }: { literals: TemplateStringsArray;
 
       } else {
         const expressionLogic = expressionLogics[dataType] ?? throwFn(`Unknown expression type: ${dataType}`);
-        result += expressionLogic.process(value ?? throwFn(`No data supplied for: ${dataKey}`));
+        result += expressionLogic.process(value ?? throwFn(`No data supplied for: ${dataKey}`), expression);
       }
     }
     result += literals[i];
