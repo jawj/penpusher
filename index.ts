@@ -20,14 +20,15 @@ type ProcessExtras = {
   expression: Record<string, any>;
   data: Record<string, any>;
   key: string | symbol;
+  checkResult: string | undefined;
 };
 
-interface ExpressionLogic { 
+interface ExpressionLogic {
   type: string;
-  process: (value: any, extras: ProcessExtras) => string; 
+  process: (value: any, extras: ProcessExtras) => string;
 }
 
-interface ExpressionLogicMap { 
+interface ExpressionLogicMap {
   text: ExpressionLogic;
   html: ExpressionLogic;
   markdown: ExpressionLogic;
@@ -38,7 +39,7 @@ interface ExpressionLogicMap {
   inputText: ExpressionLogic;
   array: ExpressionLogic;
   object: ExpressionLogic;
-  if: ExpressionLogic; 
+  if: ExpressionLogic;
   unless: ExpressionLogic;
 }
 
@@ -75,11 +76,12 @@ const expressionLogicMap: ExpressionLogicMap = {
   },
   inputText: {
     type: 'string',
-    process: (value: string, { expression: exp }: { expression: Record<string, any> }) =>
-      `<div class="formfield ${exp.optional ? 'optional' : 'mandatory'}"><label for="${exp.inputText}">${exp.label}</label>` +
+    process: (value: string, { expression: exp, checkResult }) =>
+      `<div class="formfield ${exp.optional ? 'optional' : 'mandatory'} ${checkResult === undefined ? 'ok' : 'error'}"><label for="${exp.inputText}">${exp.label}</label>` +
       (exp.size[1] === 1 ?
         `<input type="text" name="${exp.inputText}" placeholder="${xmlesc(exp.placeholder)}" cols="${exp.size[0]}" rows="${exp.size[1]}" value="${xmlesc(value)}">` :
         `<textarea name="${exp.inputText}" cols="${exp.size[0]}" rows="${exp.size[1]}">${xmlesc(value)}</textarea>`) +
+      (checkResult === undefined ? '' : `<div class="formerror">${checkResult}</div>`) +
       `</div>`,
   },
   // used for deduplication, consistency-checking, types
@@ -224,9 +226,14 @@ function treeRender(
       } else {
         if (value === undefined) throwFn(`No data supplied for: ${String(dataKey)}`);
         const expressionLogic = expressionLogicMap[expType] ?? throwFn(`Unknown expression type: ${String(expType)}`);
-        result += expressionLogic.process(value, { expression, data, key: dataKey });
 
-        // if (expression.check)
+        let checkResult = undefined;
+        if (expression.check) {
+          checkResult = expression.check(value);
+          if (checkResult !== undefined) failedChecks += 1;
+        }
+
+        result += expressionLogic.process(value, { expression, data, key: dataKey, checkResult });
       }
     }
     result += literals[i];

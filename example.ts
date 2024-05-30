@@ -1,5 +1,5 @@
 import type { Template } from '.';
-import { extractTypes, render, index } from '.';
+import { extractTypes, render, index, checkRender } from '.';
 
 const recipeCard: Template = t => t`
   <h2>
@@ -108,4 +108,4 @@ console.log(extractTypes(layout));
 console.log(render(layout, data));
 
 console.log(extractTypes(recipeForm));
-console.log(render(recipeForm, { name: 'x', subtitle: 'y', ingredients: 'z', method: 'a' }));
+console.log(checkRender(recipeForm, { name: '', subtitle: 'y', ingredients: 'z', method: 'a' }));
