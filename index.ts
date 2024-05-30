@@ -45,6 +45,13 @@ interface ExpressionLogicMap {
 
 type ExpressionType = keyof ExpressionLogicMap;
 
+const wrapFormField = (value: string, { expression, checkResult }: ProcessExtras, formField: string) =>
+  `<div class="formfield ${expression.optional ? 'optional' : 'mandatory'} ${checkResult === undefined ? 'valid' : 'invalid'}">` +
+  `<label for="${expression.inputText}">${expression.label}</label>` +
+  formField +
+  (checkResult === undefined ? '' : `<div class="formerror">${checkResult}</div>`) +
+  `</div>`;
+
 const expressionLogicMap: ExpressionLogicMap = {
   text: {
     type: 'string',
@@ -76,13 +83,13 @@ const expressionLogicMap: ExpressionLogicMap = {
   },
   inputText: {
     type: 'string',
-    process: (value: string, { expression: exp, checkResult }) =>
-      `<div class="formfield ${exp.optional ? 'optional' : 'mandatory'} ${checkResult === undefined ? 'ok' : 'error'}"><label for="${exp.inputText}">${exp.label}</label>` +
-      (exp.size[1] === 1 ?
-        `<input type="text" name="${exp.inputText}" placeholder="${xmlesc(exp.placeholder)}" cols="${exp.size[0]}" rows="${exp.size[1]}" value="${xmlesc(value)}">` :
-        `<textarea name="${exp.inputText}" cols="${exp.size[0]}" rows="${exp.size[1]}">${xmlesc(value)}</textarea>`) +
-      (checkResult === undefined ? '' : `<div class="formerror">${checkResult}</div>`) +
-      `</div>`,
+    process: (value: string, { expression, checkResult, data, key }) =>
+      wrapFormField(
+        value, { expression, checkResult, data, key },
+        expression.size[1] === 1 ?
+          `<input type="text" name="${expression.inputText}" placeholder="${xmlesc(expression.placeholder)}" cols="${expression.size[0]}" rows="${expression.size[1]}" value="${xmlesc(value)}">` :
+          `<textarea name="${expression.inputText}" placeholder="${xmlesc(expression.placeholder)}" cols="${expression.size[0]}" rows="${expression.size[1]}">${xmlesc(value)}</textarea>`
+      ),
   },
   // used for deduplication, consistency-checking, types
   array: { type: '[]', process: noop },
