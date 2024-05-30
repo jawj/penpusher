@@ -6,6 +6,8 @@ export const
   rindex = Symbol('rindex'),
   count = Symbol('count');
 
+export type SpecialValue = typeof index | typeof rindex | typeof count;
+
 export type Template = (t: (literals: TemplateStringsArray, ...expressions: Expression[]) => any) => any;
 
 const
@@ -13,9 +15,17 @@ const
   xmlEscapeMap = { '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' } as const,
   xmlesc = (s: string) => s.replace(/[<>&'"]/g, m => xmlEscapeMap[m as keyof typeof xmlEscapeMap]),
   embrace = (s: string) => '{' + s.replace(/\n/g, '\n' + indent) + '\n}',
-  throwFn = (message: string) => { throw new Error(message); }
+  throwFn = (message: string) => { throw new Error(message); },
+  noop = (x: any) => x;
 
-const expressionLogics = {
+type ProcessSecondArg = { 
+  expression: Record<string, any>; 
+  data: Record<string, any>; 
+  key: string | symbol;
+};
+type LogicsMap = Record<string, { type: string; process: (a1: any, a2: ProcessSecondArg) => string; }>;
+
+const expressionLogics: LogicsMap = {
   text: {
     type: 'string',
     process: (s: string) => xmlesc(s),
@@ -26,7 +36,7 @@ const expressionLogics = {
   },
   markdown: {
     type: 'string',
-    process: (s: string) => marked(s),
+    process: (s: string) => marked(s) as string,
   },
   number: {
     type: 'number',
@@ -46,16 +56,18 @@ const expressionLogics = {
   },
   inputText: {
     type: 'string',
-    process: (value: string, exp: Record<string, any>) =>
-      exp.size[1] === 1 ?
+    process: (value: string, { expression: exp }: { expression: Record<string, any> }) =>
+      `<div class="formfield ${exp.optional ? 'optional' : 'mandatory'}"><label for="${exp.inputText}">${exp.label}</label>` +
+      (exp.size[1] === 1 ?
         `<input type="text" name="${exp.inputText}" placeholder="${xmlesc(exp.placeholder)}" cols="${exp.size[0]}" rows="${exp.size[1]}" value="${xmlesc(value)}">` :
-        `<textarea name="${exp.inputText}" cols="${exp.size[0]}" rows="${exp.size[1]}">${xmlesc(value)}</textarea>`,
+        `<textarea name="${exp.inputText}" cols="${exp.size[0]}" rows="${exp.size[1]}">${xmlesc(value)}</textarea>`) +
+      `</div>`,
   },
   // used for deduplication, consistency-checking, types
-  array: { type: '[]' },
-  object: { type: '{}' },
-  if: { type: null },
-  unless: { type: null },
+  array: { type: '[]', process: noop },
+  object: { type: '{}', process: noop },
+  if: { type: 'if', process: noop },
+  unless: { type: 'unless', process: noop },
 };
 
 type DataType = keyof typeof expressionLogics;
@@ -63,24 +75,24 @@ type DataType = keyof typeof expressionLogics;
 type Expression = {
   [key in DataType]?: string | symbol;
 } | {
-  content: Template;
-  default: any;
-  transform: (x: any) => any;
-  label: string;
-  placeholder: string;
-  size: [number, number];
-  trim: boolean;
-  optional: boolean;
-  check: (x: any) => string | undefined;
+  content?: Template;
+  default?: any;
+  transform?: (x: any) => any;
+  label?: string;
+  placeholder?: string;
+  size?: [number, number];
+  trim?: boolean;
+  optional?: boolean;
+  check?: (x: any) => string | undefined;
 };
 
 export const extractTypes = (template: Template) => {
   const fn = (literals: TemplateStringsArray, ...expressions: any[]) => {
     let types = '';
-    const prevTypes = {};  // for deduplication and consistency-checking
+    const prevTypes: Record<string, string> = {};  // for deduplication and consistency-checking
     for (const exp of expressions) {
-      const dataType = Object.keys(exp)[0];
-      const dataKey = exp[dataType];
+      const dataType = Object.keys(exp)[0] as DataType;
+      const dataKey: string | SpecialValue = exp[dataType];
 
       if (typeof dataKey === 'symbol') continue;  // e.g. indexes
 
@@ -113,32 +125,52 @@ const defaultRenderData = {
   [count]: 1,
 };
 
-export const render = (template: Template, data: any) => {
-  const
-    fn = (literals: TemplateStringsArray, ...expressions: any[]) =>
-      ({ literals: Array.from(literals), expressions }),
-    tree = template(fn);
+export const treeFromTemplate = (template: Template) => {
+  return template((literals: TemplateStringsArray, ...expressions: any[]) =>
+    ({ literals: Array.from(literals), expressions }));
+}
 
-  return treeRender(tree, data);
+export const render = (template: Template, data: any) => {
+  const tree = treeFromTemplate(template);
+  const [result] = treeRender(tree, data, false);
+  return result;
 };
 
-function treeRender({ literals, expressions }: { literals: TemplateStringsArray; expressions: any[] }, data: any, renderData = defaultRenderData) {
-  let result = literals[0];
+export const checkRender = (template: Template, data: any) => {
+  const tree = treeFromTemplate(template);
+  const [result, failedChecks] = treeRender(tree, data, true);
+  return { result, failedChecks };
+}
+
+function treeRender(
+  { literals, expressions }: { literals: TemplateStringsArray; expressions: any[] },
+  data: any,
+  check: boolean,
+  renderData = defaultRenderData
+) {
+  let
+    result = literals[0],
+    failedChecks = 0;
+
   for (let i = 1, iLen = literals.length; i < iLen; i++) {
     const
       expression = expressions[i - 1],
-      dataType = Object.keys(expression)[0],
-      dataKey = expression[dataType],
+      dataType = Object.keys(expression)[0] as DataType,
+      dataKey: string | SpecialValue = expression[dataType],
       dataValue = data[dataKey] ?? expression.default;
 
     if (dataType === 'array') {
       for (let j = 0, jLen = dataValue.length; j < jLen; j++) {
         const localRenderData = { [index]: j, [rindex]: jLen - j - 1, [count]: jLen };
-        result += treeRender(expression.content, dataValue[j], localRenderData);
+        const [childResult, childFailedChecks] = treeRender(expression.content, dataValue[j], check, localRenderData);
+        result += childResult;
+        failedChecks += childFailedChecks;
       }
 
     } else if (dataType === 'object') {
-      result += treeRender(expression.content, dataValue, renderData);
+      const [childResult, childFailedChecks] = treeRender(expression.content, dataValue, check, renderData);
+      result += childResult;
+      failedChecks += childFailedChecks;
 
     } else {
       let value =
@@ -149,14 +181,19 @@ function treeRender({ literals, expressions }: { literals: TemplateStringsArray;
       if (expression.transform) value = expression.transform(value);
 
       if (dataType === 'if' || dataType === 'unless') {
-        if (dataType === 'if' ? value : !value) result += treeRender(expression.content, data, renderData);
+        if (dataType === 'if' ? value : !value) {
+          const [childResult, childFailedChecks] = treeRender(expression.content, data, check, renderData);
+          result += childResult;
+          failedChecks += childFailedChecks;
+        }
 
       } else {
-        const expressionLogic = expressionLogics[dataType] ?? throwFn(`Unknown expression type: ${dataType}`);
-        result += expressionLogic.process(value ?? throwFn(`No data supplied for: ${dataKey}`), expression);
+        if (value === undefined) throwFn(`No data supplied for: ${String(dataKey)}`)
+        const expressionLogic = expressionLogics[dataType] ?? throwFn(`Unknown expression type: ${String(dataType)}`);
+        result += expressionLogic.process(value, { expression, data, key: dataKey });
       }
     }
     result += literals[i];
   }
-  return result;
+  return [result, failedChecks] as [string, number];
 }
